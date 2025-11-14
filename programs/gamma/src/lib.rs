@@ -9,6 +9,7 @@ use instructions::*;
 
 pub mod instructions;
 pub mod state;
+pub mod types;
 
 declare_id!("JDP9AsSqpzeea8yqscvMHU7gkvC7QR16UF35hf74tAFG");
 

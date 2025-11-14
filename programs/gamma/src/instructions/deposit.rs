@@ -2,18 +2,17 @@ use crate::state::Market;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount};
 use common::check_condition;
-use common::constants::{MARKET_SEED, OUTCOME_MINT_SEED, VAULT_SEED};
+use common::constants::{MARKET_SEED, OUTCOME_MINT_DECIMALS, OUTCOME_MINT_SEED, VAULT_SEED};
 use common::errors::ErrorCode;
 use common::utils::{Decimal, Rounding};
 
 #[derive(Accounts)]
-#[instruction(outcome_index: u8, amount_in: u64, label: String)]
+#[instruction(outcome_index: u8, amount_in: u64)]
 pub struct Deposit<'info> {
     /// Payer providing SOL
     #[account(mut)]
     pub user: Signer<'info>,
 
-    /// Market zero-copy account PDA. Seeds: [MARKET_SEED, label.as_ref()]
     #[account(mut)]
     pub market: AccountLoader<'info, Market>,
 
@@ -25,52 +24,67 @@ pub struct Deposit<'info> {
     )]
     pub market_vault: UncheckedAccount<'info>,
 
-    /// Outcome SPL Mint to mint tokens to user. Authority must be market PDA.
+    /// Outcome SPL token to mint to user. Authority must be the market PDA.
     #[account(
         mut,
+        mint::decimals = OUTCOME_MINT_DECIMALS,
+        mint::authority = market,
         seeds = [OUTCOME_MINT_SEED, market.key().as_ref(), &[outcome_index]],
         bump,
     )]
     pub outcome_mint: Account<'info, Mint>,
 
-    /// User's ATA for the outcome mint
-    #[account(mut)]
-    pub user_outcome_ata: Account<'info, TokenAccount>,
+    #[account(
+        mut,
+        associated_token::mint = outcome_mint,
+        associated_token::authority = user,
+        associated_token::token_program = outcome_mint.to_account_info().owner,
+    )]
+    pub user_outcome_token_account: Account<'info, TokenAccount>,
 
-    /// Programs
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
 
-pub fn deposit(
-    ctx: Context<Deposit>,
-    outcome_index: u8,
-    amount_in: u64,
-    label: String,
-) -> Result<()> {
+pub fn deposit(ctx: Context<Deposit>, outcome_index: u8, amount_in: u64) -> Result<()> {
     // Basic validation
     let mut market = ctx.accounts.market.load_mut()?;
     let idx = outcome_index as usize;
-    let n = market.num_outcomes as usize;
-    check_condition!(n > 0, OutcomeBelowZero);
-    check_condition!(idx < n, InvalidOutcomeIndex);
+    let num_outcomes = market.num_outcomes as usize;
+
+    check_condition!(amount_in > 0, DepositIsZero);
+    check_condition!(num_outcomes > 0, OutcomeBelowZero);
+    check_condition!(idx < num_outcomes, InvalidOutcomeIndex);
+
+    // Transfer SOL from user -> market vault
+    anchor_lang::system_program::transfer(
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            anchor_lang::system_program::Transfer {
+                from: ctx.accounts.user.to_account_info(),
+                to: ctx.accounts.market_vault.to_account_info(),
+            },
+        ),
+        amount_in,
+    )
+    .map_err(|_| error!(ErrorCode::TransferFailed))?;
 
     // Transfer SOL from user -> market vault
     // NOTE: this uses native lamports. If you plan to use SPL collateral (USDC), replace with token CPI.
-    let ix = anchor_lang::solana_program::system_instruction::transfer(
-        &ctx.accounts.user.key(),
-        &ctx.accounts.market_vault.key(),
-        amount_in,
-    );
-    anchor_lang::solana_program::program::invoke(
-        &ix,
-        &[
-            ctx.accounts.user.to_account_info(),
-            ctx.accounts.market_vault.to_account_info(),
-            ctx.accounts.system_program.to_account_info(),
-        ],
-    )
-    .map_err(|_| error!(ErrorCode::TransferFailed))?;
+    // let ix = anchor_lang::solana_program::system_instruction::transfer(
+    //     &ctx.accounts.user.key(),
+    //     &ctx.accounts.market_vault.key(),
+    //     amount_in,
+    // );
+    // anchor_lang::solana_program::program::invoke(
+    //     &ix,
+    //     &[
+    //         ctx.accounts.user.to_account_info(),
+    //         ctx.accounts.market_vault.to_account_info(),
+    //         ctx.accounts.system_program.to_account_info(),
+    //     ],
+    // )
+    // .map_err(|_| error!(ErrorCode::TransferFailed))?;
 
     // Update reserve (safe checked add)
     market.reserves[idx] = market.reserves[idx]
@@ -99,8 +113,8 @@ pub fn deposit(
     let s0_sq = s0_dec.mul(&s0_dec)?.div(&Decimal::ONE_E18)?;
 
     // compute 2 * A_in_D18 (D18 * D18 = D36 ; divide by ONE_E18 -> D18)
-    let two_dec = Decimal::from_plain(2)?;
-    let two_a_d18 = a_d18.mul(&two_dec)?.div(&Decimal::ONE_E18)?;
+    let two_d18 = Decimal::from_plain(2)?;
+    let two_a_d18 = a_d18.mul(&two_d18)?.div(&Decimal::ONE_E18)?;
 
     // rhs = s0^2 + 2 * A
     let rhs = s0_sq.add(&two_a_d18)?;
@@ -112,30 +126,27 @@ pub fn deposit(
     let delta = s_new.sub(&s0_dec)?;
 
     // minted amount -> convert D18 -> token units (D9) using to_token_amount
-    let token_result = delta.to_token_amount(Rounding::Floor)?;
-    let minted_u64 = token_result.0;
+    let amount_out = delta.to_token_amount(Rounding::Floor)?.0;
 
     // Update supply (checked)
     market.supplies[idx] = market.supplies[idx]
-        .checked_add(minted_u64)
+        .checked_add(amount_out)
         .ok_or(error!(ErrorCode::MathOverflow))?;
 
     // Recompute invariant (efficient/incremental update could be used, but recompute for correctness)
-    market
-        .recompute_invariant()
-        .map_err(|_| error!(ErrorCode::MathOverflow))?;
+    market.recompute_invariant()?;
 
     // --- Mint outcome tokens to user via CPI, signed by market PDA ---
     //
     // We assume the outcome_mint authority is the market PDA created with seeds: [MARKET_SEED, label.as_ref()]
     // and that `market.bump` matches the PDA bump for that seed. Adjust seeds if you used a different mint authority.
     //
-    let seeds: &[&[u8]] = &[MARKET_SEED, label.as_bytes(), &[market.bump]];
+    let seeds: &[&[u8]] = &[MARKET_SEED, market.label.as_bytes(), &[market.bump]];
     let signer_seeds: &[&[&[u8]]] = &[seeds];
 
     let cpi_accounts = MintTo {
         mint: ctx.accounts.outcome_mint.to_account_info(),
-        to: ctx.accounts.user_outcome_ata.to_account_info(),
+        to: ctx.accounts.user_outcome_token_account.to_account_info(),
         authority: ctx.accounts.market.to_account_info(), // market PDA as mint authority
     };
 
@@ -146,7 +157,7 @@ pub fn deposit(
     );
 
     // minted_u64 may be zero in edge cases — handle it gracefully (still OK to call mint_to with 0).
-    token::mint_to(cpi_ctx, minted_u64).map_err(|_| error!(ErrorCode::TokenMintFailed))?;
+    token::mint_to(cpi_ctx, amount_out).map_err(|_| error!(ErrorCode::TokenMintFailed))?;
 
     Ok(())
 }

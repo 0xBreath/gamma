@@ -4,6 +4,8 @@ use common::constants::MAX_OUTCOMES;
 use common::errors::ErrorCode;
 use spl_math::uint::U256;
 
+use crate::types::FixedSizeString;
+
 #[account(zero_copy)]
 #[derive(InitSpace, Default)]
 #[repr(C)]
@@ -30,6 +32,8 @@ pub struct Market {
 
     /// Token users will deposit and withdraw from the market in exchange for shares (i.e. USDC)
     pub deposit_mint: Pubkey,
+
+    pub label: FixedSizeString,
 
     /// Number of outcomes (N)
     pub num_outcomes: u8,

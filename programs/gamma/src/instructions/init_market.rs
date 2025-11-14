@@ -3,6 +3,7 @@ use anchor_spl::token::Token;
 use spl_math::uint::U256;
 
 use crate::state::Market;
+use crate::types::{FixedSizeString, MAX_PADDED_STRING_LENGTH};
 use anchor_lang::solana_program::rent::ACCOUNT_STORAGE_OVERHEAD;
 use common::constants::{
     MARKET_SEED, MAX_OUTCOMES, OUTCOME_MINT_DECIMALS, OUTCOME_MINT_SEED, VAULT_SEED,
@@ -49,10 +50,13 @@ pub fn init_market(
 
     check_condition!(num_outcomes as usize <= MAX_OUTCOMES, TooManyOutcomes);
 
+    check_condition!(label.len() <= MAX_PADDED_STRING_LENGTH, InvalidLabelLength);
+
     market.admin = *ctx.accounts.admin.key;
     market.num_outcomes = num_outcomes;
     market.scale = scale;
     market.bump = ctx.bumps.market;
+    market.label = FixedSizeString::new(&label);
 
     let bump = market.bump;
     let market_key = ctx.accounts.market.key();

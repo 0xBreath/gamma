@@ -48,6 +48,12 @@ pub enum ErrorCode {
 
     #[msg("Invalid mint seed")]
     InvalidMintSeed,
+
+    #[msg("Invalid label length")]
+    InvalidLabelLength,
+
+    #[msg("Deposit is zero")]
+    DepositIsZero,
 }
 
 /// Check a condition and return an error if it is not met.
