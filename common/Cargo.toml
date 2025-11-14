@@ -1,0 +1,25 @@
+[package]
+name = "common"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "common"
+crate-type = ["lib"]
+
+[dependencies]
+anchor-lang = { workspace = true }
+anchor-spl  = { workspace = true }
+bytemuck  = { workspace = true }
+solana-program  = { workspace = true }
+solana-system-interface = { workspace = true }
+spl-math  = { workspace = true }
+spl-token-2022 = { workspace = true }
+
+[build-dependencies]
+dotenv = { workspace = true }
+
+[features]
+default = []
+dev = []
+test = []
