@@ -8,7 +8,7 @@ use common::utils::{Decimal, Rounding};
 
 #[derive(Accounts)]
 #[instruction(outcome_index: u8, amount_in: u64)]
-pub struct Deposit<'info> {
+pub struct Buy<'info> {
     /// Payer providing SOL
     #[account(mut)]
     pub user: Signer<'info>,
@@ -46,7 +46,7 @@ pub struct Deposit<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn deposit(ctx: Context<Deposit>, outcome_index: u8, amount_in: u64) -> Result<()> {
+pub fn buy(ctx: Context<Buy>, outcome_index: u8, amount_in: u64) -> Result<()> {
     // Basic validation
     let mut market = ctx.accounts.market.load_mut()?;
     let idx = outcome_index as usize;
@@ -68,23 +68,6 @@ pub fn deposit(ctx: Context<Deposit>, outcome_index: u8, amount_in: u64) -> Resu
         amount_in,
     )
     .map_err(|_| error!(ErrorCode::TransferFailed))?;
-
-    // Transfer SOL from user -> market vault
-    // NOTE: this uses native lamports. If you plan to use SPL collateral (USDC), replace with token CPI.
-    // let ix = anchor_lang::solana_program::system_instruction::transfer(
-    //     &ctx.accounts.user.key(),
-    //     &ctx.accounts.market_vault.key(),
-    //     amount_in,
-    // );
-    // anchor_lang::solana_program::program::invoke(
-    //     &ix,
-    //     &[
-    //         ctx.accounts.user.to_account_info(),
-    //         ctx.accounts.market_vault.to_account_info(),
-    //         ctx.accounts.system_program.to_account_info(),
-    //     ],
-    // )
-    // .map_err(|_| error!(ErrorCode::TransferFailed))?;
 
     // Update reserve (safe checked add)
     market.reserves[idx] = market.reserves[idx]

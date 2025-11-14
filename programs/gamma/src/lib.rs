@@ -25,4 +25,8 @@ pub mod gamma {
     ) -> Result<()> {
         instructions::init_market(ctx, num_outcomes, scale, label)
     }
+
+    pub fn buy(ctx: Context<Buy>, outcome_index: u8, amount_in: u64) -> Result<()> {
+        instructions::buy(ctx, outcome_index, amount_in)
+    }
 }
