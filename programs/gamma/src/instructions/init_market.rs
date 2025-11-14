@@ -56,6 +56,7 @@ pub fn init_market(
     market.num_outcomes = num_outcomes;
     market.scale = scale;
     market.bump = ctx.bumps.market;
+    market.vault_bump = ctx.bumps.market_vault;
     market.label = FixedSizeString::new(&label);
 
     let bump = market.bump;

@@ -53,6 +53,7 @@ pub struct Sell<'info> {
 
 pub fn sell(ctx: Context<Sell>, outcome_index: u8, burn_amount: u64) -> Result<()> {
     // --- basic validation ---
+    let market_key = ctx.accounts.market.key();
     let mut market = ctx.accounts.market.load_mut()?;
     let idx = outcome_index as usize;
     let n = market.num_outcomes as usize;
@@ -93,14 +94,14 @@ pub fn sell(ctx: Context<Sell>, outcome_index: u8, burn_amount: u64) -> Result<(
         authority: ctx.accounts.user.to_account_info(),
     };
     let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
-    // Note: user signs, so no PDA signer required for burn
+    // Note: user signs for outcome token burn
     token::burn(cpi_ctx, burn_amount)?;
 
     // compute payout then update market reserves, supplies, and invariant
     let net_payout_u64 = market.sell_outcome(idx, burn_amount, vault_lamports)?;
 
-    // --- Transfer net payout from vault PDA to user (invoke_signed) ---
-    let seeds: &[&[u8]] = &[MARKET_SEED, market.label.as_bytes(), &[market.bump]];
+    // market_vault PDA signs for lamport transfer from self
+    let seeds: &[&[u8]] = &[VAULT_SEED, market_key.as_ref(), &[market.vault_bump]];
     let signer_seeds: &[&[&[u8]]] = &[seeds];
 
     let ix = system_instruction::transfer(
@@ -109,7 +110,7 @@ pub fn sell(ctx: Context<Sell>, outcome_index: u8, burn_amount: u64) -> Result<(
         net_payout_u64,
     );
 
-    // Note: because market_vault is a PDA, we must sign with PDA seeds (market PDA)
+    // because market_vault is a PDA, we must sign with market PDA seeds (market PDA)
     invoke_signed(
         &ix,
         &[

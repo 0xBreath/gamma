@@ -1,5 +1,3 @@
-//! Common constants for the program.
-
 use spl_math::uint::U256;
 
 // Constants for scaling
@@ -25,5 +23,5 @@ pub const YEAR_IN_SECONDS: u64 = 365 * DAY_IN_SECONDS;
 pub const LN_2: u128 = 693_147_180_559_945_309;
 
 // Tunables (adjust or move to Market)
-pub const FEE_BPS: u64 = 200; // 2.00%
+pub const FEE_BPS: u64 = 10; // 0.1%
 pub const MAX_WITHDRAW_BPS: u64 = 50_00; // 50% of outcome reserve allowed per tx (in basis points; 10000 = 100%)

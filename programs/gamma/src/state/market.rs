@@ -29,6 +29,8 @@ pub struct Market {
 
     pub initialized_at: u64,
 
+    pub undistributed_fees: u64,
+
     /// The admin of the market who can mutate it
     pub admin: Pubkey,
 
@@ -42,8 +44,10 @@ pub struct Market {
 
     pub bump: u8,
 
+    pub vault_bump: u8,
+
     /// Padding for zero copy alignment
-    pub _padding: [u8; 14],
+    pub _padding: [u8; 13],
 }
 
 impl Market {
@@ -272,6 +276,11 @@ impl Market {
         let fee_u64 = fee as u64;
         let net_payout_u64 = refund_u64
             .checked_sub(fee_u64)
+            .ok_or(error!(ErrorCode::MathOverflow))?;
+
+        self.undistributed_fees = self
+            .undistributed_fees
+            .checked_add(fee_u64)
             .ok_or(error!(ErrorCode::MathOverflow))?;
 
         // --- Update market state: decrease reserve by full refund (refund includes fee that remains in vault)
