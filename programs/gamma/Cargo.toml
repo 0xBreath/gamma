@@ -28,11 +28,11 @@ common = { workspace = true }
 solana-system-interface = { workspace = true }
 spl-math = { workspace = true }
 spl-pod = { workspace = true }
-spl-token = "7.0.0"
+spl-token = { workspace = true }
 spl-token-2022 = { workspace = true }
 spl-token-metadata-interface = { workspace = true }
 spl-type-length-value = { workspace = true }
 
 [dev-dependencies]
-# mollusk-svm = { workspace = true }
+mollusk-svm = { workspace = true }
 solana-program = { workspace = true }
