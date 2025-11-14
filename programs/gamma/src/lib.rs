@@ -33,12 +33,7 @@ pub mod gamma {
     }
 
     /// Sell out of a single outcome by burning the liquid-stake token for that position and receiving SOL in return
-    pub fn sell(
-        ctx: Context<Sell>,
-        outcome_index: u8,
-        burn_amount: u64,
-        label: String,
-    ) -> Result<()> {
-        instructions::sell(ctx, outcome_index, burn_amount, label)
+    pub fn sell(ctx: Context<Sell>, outcome_index: u8, burn_amount: u64) -> Result<()> {
+        instructions::sell(ctx, outcome_index, burn_amount)
     }
 }

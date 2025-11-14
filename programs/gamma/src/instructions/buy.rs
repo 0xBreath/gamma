@@ -4,7 +4,6 @@ use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount};
 use common::check_condition;
 use common::constants::{MARKET_SEED, OUTCOME_MINT_DECIMALS, OUTCOME_MINT_SEED, VAULT_SEED};
 use common::errors::ErrorCode;
-use common::utils::{Decimal, Rounding};
 
 #[derive(Accounts)]
 #[instruction(outcome_index: u8, amount_in: u64)]
@@ -69,55 +68,7 @@ pub fn buy(ctx: Context<Buy>, outcome_index: u8, amount_in: u64) -> Result<()> {
     )
     .map_err(|_| error!(ErrorCode::TransferFailed))?;
 
-    // Update reserve (safe checked add)
-    market.reserves[idx] = market.reserves[idx]
-        .checked_add(amount_in)
-        .ok_or(error!(ErrorCode::MathOverflow))?;
-
-    // --- Compute minted tokens using quadratic cost C(s) = 1/2 * s^2 ---
-    // supply s is stored as plain token units (u64)
-    // We'll work in D18 decimals:
-    // s0 (D18) = Decimal::from_plain(s0_u64)
-    // A (token amount) -> D9 via from_token_amount -> convert to D18 by multiplying by ONE_E9 (D9)
-    // Compute s_new = sqrt( s0^2 + 2 * A_in_D18 )
-    // minted = floor( s_new - s0 ) converted to token units
-
-    // current supply
-    let s0_u64 = market.supplies[idx];
-    let s0_dec = Decimal::from_plain(s0_u64)?;
-
-    // payment as Decimal D9 (since token amounts often D9) then convert to D18:
-    let a_d9 = Decimal::from_token_amount(amount_in)?;
-    // convert D9 -> D18 by multiplying by ONE_E9 (D9) producing D18 (D9 * D9 = D18)
-    // Decimal::ONE_E9 exists on your type
-    let a_d18 = a_d9.mul(&Decimal::ONE_E9)?; // now in D18
-
-    // s0^2 (keep at D18): (s0_dec * s0_dec) / ONE_E18  => result D18
-    let s0_sq = s0_dec.mul(&s0_dec)?.div(&Decimal::ONE_E18)?;
-
-    // compute 2 * A_in_D18 (D18 * D18 = D36 ; divide by ONE_E18 -> D18)
-    let two_d18 = Decimal::from_plain(2)?;
-    let two_a_d18 = a_d18.mul(&two_d18)?.div(&Decimal::ONE_E18)?;
-
-    // rhs = s0^2 + 2 * A
-    let rhs = s0_sq.add(&two_a_d18)?;
-
-    // s_new = sqrt(rhs)  (nth_root with n=2), returns D18
-    let s_new = rhs.nth_root(2)?;
-
-    // delta = s_new - s0_dec  (D18)
-    let delta = s_new.sub(&s0_dec)?;
-
-    // minted amount -> convert D18 -> token units (D9) using to_token_amount
-    let amount_out = delta.to_token_amount(Rounding::Floor)?.0;
-
-    // Update supply (checked)
-    market.supplies[idx] = market.supplies[idx]
-        .checked_add(amount_out)
-        .ok_or(error!(ErrorCode::MathOverflow))?;
-
-    // Recompute invariant (efficient/incremental update could be used, but recompute for correctness)
-    market.recompute_invariant()?;
+    let amount_out = market.buy_outcome(idx, amount_in)?;
 
     // --- Mint outcome tokens to user via CPI, signed by market PDA ---
     //
