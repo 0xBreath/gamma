@@ -17,6 +17,7 @@ declare_id!("JDP9AsSqpzeea8yqscvMHU7gkvC7QR16UF35hf74tAFG");
 pub mod gamma {
     use super::*;
 
+    /// Create a new market with N outcomes
     pub fn init_market(
         ctx: Context<InitMarket>,
         num_outcomes: u8,
@@ -26,7 +27,18 @@ pub mod gamma {
         instructions::init_market(ctx, num_outcomes, scale, label)
     }
 
+    /// Buy into a single outcome with SOL and receive liquid-stake tokens for that position
     pub fn buy(ctx: Context<Buy>, outcome_index: u8, amount_in: u64) -> Result<()> {
         instructions::buy(ctx, outcome_index, amount_in)
+    }
+
+    /// Sell out of a single outcome by burning the liquid-stake token for that position and receiving SOL in return
+    pub fn sell(
+        ctx: Context<Sell>,
+        outcome_index: u8,
+        burn_amount: u64,
+        label: String,
+    ) -> Result<()> {
+        instructions::sell(ctx, outcome_index, burn_amount, label)
     }
 }

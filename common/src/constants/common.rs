@@ -23,3 +23,7 @@ pub const YEAR_IN_SECONDS: u64 = 365 * DAY_IN_SECONDS;
 
 /// LN_2 is the natural logarithm of 2, 693147180559945309. Used in reward token calculations. In D18.
 pub const LN_2: u128 = 693_147_180_559_945_309;
+
+// Tunables (adjust or move to Market)
+pub const FEE_BPS: u64 = 200; // 2.00%
+pub const MAX_WITHDRAW_BPS: u64 = 50_00; // 50% of outcome reserve allowed per tx (in basis points; 10000 = 100%)

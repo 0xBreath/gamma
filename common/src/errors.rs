@@ -54,6 +54,21 @@ pub enum ErrorCode {
 
     #[msg("Deposit is zero")]
     DepositIsZero,
+
+    #[msg("Burn is zero")]
+    BurnIsZero,
+
+    #[msg("Insufficient funds")]
+    InsufficientFunds,
+
+    #[msg("Burn is more than supply")]
+    BurnIsMoreThanSupply,
+
+    #[msg("Insufficient vault funds")]
+    InsufficientVaultFunds,
+
+    #[msg("Vault transfer failed")]
+    VaultTransferFailed,
 }
 
 /// Check a condition and return an error if it is not met.
