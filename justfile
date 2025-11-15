@@ -77,4 +77,4 @@ build-local:
 
 test:
     @anchor build
-    @cargo test
+    @cargo test -- --nocapture

@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use bytemuck::{Pod, Zeroable};
 
 /// The maximum length of a fixed size string in bytes.
-pub const MAX_PADDED_STRING_LENGTH: usize = 128;
+pub const MAX_PADDED_STRING_LENGTH: usize = 32;
 
 /// A fixed size string with a maximum length of 128 bytes.
 ///

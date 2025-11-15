@@ -47,6 +47,7 @@ pub struct Buy<'info> {
 
 pub fn buy(ctx: Context<Buy>, outcome_index: u8, amount_in: u64) -> Result<()> {
     // Basic validation
+    let market_key = ctx.accounts.market.key();
     let mut market = ctx.accounts.market.load_mut()?;
     let idx = outcome_index as usize;
     let num_outcomes = market.num_outcomes as usize;
@@ -54,6 +55,15 @@ pub fn buy(ctx: Context<Buy>, outcome_index: u8, amount_in: u64) -> Result<()> {
     check_condition!(amount_in > 0, DepositIsZero);
     check_condition!(num_outcomes > 0, OutcomeBelowZero);
     check_condition!(idx < num_outcomes, InvalidOutcomeIndex);
+
+    let (expected_mint_key, _) = Pubkey::find_program_address(
+        &[OUTCOME_MINT_SEED, market_key.as_ref(), &[idx as u8]],
+        ctx.program_id,
+    );
+    check_condition!(
+        ctx.accounts.outcome_mint.key() == expected_mint_key,
+        InvalidMintSeed
+    );
 
     // Transfer SOL from user -> market vault
     anchor_lang::system_program::transfer(
@@ -72,11 +82,13 @@ pub fn buy(ctx: Context<Buy>, outcome_index: u8, amount_in: u64) -> Result<()> {
 
     // --- Mint outcome tokens to user via CPI, signed by market PDA ---
     //
-    // We assume the outcome_mint authority is the market PDA created with seeds: [MARKET_SEED, label.as_ref()]
+    // We assume the outcome_mint authority is the market PDA created with seeds: [MARKET_SEED, label.as_bytes()]
     // and that `market.bump` matches the PDA bump for that seed. Adjust seeds if you used a different mint authority.
     //
-    let seeds: &[&[u8]] = &[MARKET_SEED, market.label.as_bytes(), &[market.bump]];
-    let signer_seeds: &[&[&[u8]]] = &[seeds];
+    let label = market.label.clone();
+    let signer_seeds: &[&[&[u8]]] = &[&[MARKET_SEED, label.as_bytes(), &[market.bump]]];
+
+    drop(market);
 
     let cpi_accounts = MintTo {
         mint: ctx.accounts.outcome_mint.to_account_info(),
@@ -90,8 +102,11 @@ pub fn buy(ctx: Context<Buy>, outcome_index: u8, amount_in: u64) -> Result<()> {
         signer_seeds,
     );
 
+    msg!("amount_out: {}", amount_out);
+
     // minted_u64 may be zero in edge cases — handle it gracefully (still OK to call mint_to with 0).
-    token::mint_to(cpi_ctx, amount_out).map_err(|_| error!(ErrorCode::TokenMintFailed))?;
+    // token::mint_to(cpi_ctx, amount_out).map_err(|_| error!(ErrorCode::TokenMintFailed))?;
+    token::mint_to(cpi_ctx, amount_out)?;
 
     Ok(())
 }

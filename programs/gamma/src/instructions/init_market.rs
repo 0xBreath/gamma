@@ -14,7 +14,7 @@ use common::constants::{
 use common::{check_condition, errors::ErrorCode};
 
 #[derive(Accounts)]
-#[instruction(num_outcomes: u8, scale: u64, label: String)]
+#[instruction(num_outcomes: u8, scale: u64, label: FixedSizeString)]
 pub struct InitMarket<'info> {
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
@@ -27,7 +27,7 @@ pub struct InitMarket<'info> {
         init,
         payer = admin,
         space = Market::SIZE,
-        seeds = [MARKET_SEED, label.as_ref()],
+        seeds = [MARKET_SEED, label.as_bytes()],
         bump
     )]
     pub market: AccountLoader<'info, Market>,
@@ -48,27 +48,29 @@ pub fn init_market<'info>(
     ctx: Context<'_, '_, 'info, 'info, InitMarket<'info>>,
     num_outcomes: u8,
     scale: u64,
-    label: String,
+    label: FixedSizeString,
 ) -> Result<()> {
     let mut market = ctx.accounts.market.load_init()?;
 
     check_condition!(num_outcomes as usize <= MAX_OUTCOMES, TooManyOutcomes);
 
-    check_condition!(label.len() <= MAX_PADDED_STRING_LENGTH, InvalidLabelLength);
+    check_condition!(
+        label.value.len() <= MAX_PADDED_STRING_LENGTH,
+        InvalidLabelLength
+    );
+
+    let bump = ctx.bumps.market;
+    let market_key = ctx.accounts.market.key();
+
+    // Market PDA seeds
+    let market_signer_seeds: &[&[&[u8]]] = &[&[MARKET_SEED, label.as_bytes(), &[bump]]];
 
     market.admin = *ctx.accounts.admin.key;
     market.num_outcomes = num_outcomes;
     market.scale = scale;
     market.bump = ctx.bumps.market;
     market.vault_bump = ctx.bumps.market_vault;
-    market.label = FixedSizeString::new(&label);
-
-    let bump = market.bump;
-    let market_key = ctx.accounts.market.key();
-
-    // Market PDA seeds
-    let market_seeds: &[&[u8]] = &[MARKET_SEED, label.as_bytes(), &[bump]];
-    let signer_seeds: &[&[&[u8]]] = &[market_seeds];
+    market.label = label;
 
     let remaining = ctx.remaining_accounts;
 
@@ -118,10 +120,10 @@ pub fn init_market<'info>(
                     mint: mint_info.clone(),
                     rent: rent_info.clone(),
                 },
-                signer_seeds,
+                market_signer_seeds,
             ),
             OUTCOME_MINT_DECIMALS,
-            &mint_info.key(),
+            &market_key,
             None,
         )?;
     }

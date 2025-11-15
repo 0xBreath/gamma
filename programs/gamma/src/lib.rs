@@ -6,6 +6,7 @@
 use anchor_lang::prelude::*;
 
 use instructions::*;
+use types::*;
 
 pub mod instructions;
 pub mod state;
@@ -22,7 +23,7 @@ pub mod gamma {
         ctx: Context<'_, '_, 'info, 'info, InitMarket<'info>>,
         num_outcomes: u8,
         scale: u64,
-        label: String,
+        label: FixedSizeString,
     ) -> Result<()> {
         instructions::init_market(ctx, num_outcomes, scale, label)
     }

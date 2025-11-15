@@ -101,8 +101,8 @@ pub fn sell(ctx: Context<Sell>, outcome_index: u8, burn_amount: u64) -> Result<(
     let net_payout_u64 = market.sell_outcome(idx, burn_amount, vault_lamports)?;
 
     // market_vault PDA signs for lamport transfer from self
-    let seeds: &[&[u8]] = &[VAULT_SEED, market_key.as_ref(), &[market.vault_bump]];
-    let signer_seeds: &[&[&[u8]]] = &[seeds];
+    let market_vault_signer_seeds: &[&[&[u8]]] =
+        &[&[VAULT_SEED, market_key.as_ref(), &[market.vault_bump]]];
 
     let ix = system_instruction::transfer(
         &ctx.accounts.market_vault.key(),
@@ -118,7 +118,7 @@ pub fn sell(ctx: Context<Sell>, outcome_index: u8, burn_amount: u64) -> Result<(
             ctx.accounts.user.to_account_info().clone(),
             ctx.accounts.system_program.to_account_info().clone(),
         ],
-        signer_seeds,
+        market_vault_signer_seeds,
     )
     .map_err(|_| error!(ErrorCode::VaultTransferFailed))?;
 
