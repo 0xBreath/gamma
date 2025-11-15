@@ -3,7 +3,6 @@ use common::check_condition;
 use common::constants::common::*;
 use common::constants::MAX_OUTCOMES;
 use common::errors::ErrorCode;
-use common::utils::{Decimal, Rounding};
 use spl_math::uint::U256;
 
 use crate::types::FixedSizeString;
@@ -163,54 +162,78 @@ impl Market {
     }
 
     pub fn buy_outcome(&mut self, outcome_index: usize, amount_in: u64) -> Result<u64> {
-        // Update reserve
-        self.reserves[outcome_index] = self.reserves[outcome_index]
+        let n = self.num_outcomes as usize;
+        check_condition!(outcome_index < n, InvalidOutcomeIndex);
+        check_condition!(amount_in > 0, DepositIsZero);
+
+        // Get current invariant k = ∏ reserves[i]
+        let k = self.invariant_u256();
+        let is_first_trade = k.is_zero();
+
+        if is_first_trade {
+            // First trade: initialize all reserves to scale
+            for i in 0..n {
+                self.reserves[i] = self.scale;
+            }
+
+            // Add user's deposit to the bought outcome's reserve
+            self.reserves[outcome_index] = self.reserves[outcome_index]
+                .checked_add(amount_in)
+                .ok_or(error!(ErrorCode::MathOverflow))?;
+
+            // Set initial invariant k = ∏ reserves[i]
+            self.recompute_invariant()?;
+
+            // Mint tokens 1:1 for first trade
+            let amount_out = amount_in;
+            self.supplies[outcome_index] = amount_out;
+
+            return Ok(amount_out);
+        }
+
+        // Geometric mean AMM (Balancer-style with equal weights)
+        // Invariant: k = ∏ reserves[i]
+        //
+        // When buying outcome i, we add lamports to reserve[i]
+        // This increases k, and we mint tokens proportionally
+        //
+        // For minimal cross-impact, tokens minted should be:
+        // tokens_out = supply[i] × (Δreserve / old_reserve)
+        //
+        // This means the token supply grows proportionally to the reserve,
+        // keeping the price relatively stable for that outcome
+
+        let old_reserve = self.reserves[outcome_index];
+        check_condition!(old_reserve > 0, ReserveIsZero);
+
+        let old_supply = self.supplies[outcome_index];
+
+        // Add user's deposit to reserve
+        let new_reserve = old_reserve
             .checked_add(amount_in)
             .ok_or(error!(ErrorCode::MathOverflow))?;
 
-        // --- Compute minted tokens using quadratic cost C(s) = 1/2 * s^2 ---
-        // supply s is stored as plain token units (u64)
-        // We'll work in D18 decimals:
-        // s0 (D18) = Decimal::from_plain(s0_u64)
-        // A (token amount) -> D9 via from_token_amount -> convert to D18 by multiplying by ONE_E9 (D9)
-        // Compute s_new = sqrt( s0^2 + 2 * A_in_D18 )
-        // minted = floor( s_new - s0 ) converted to token units
+        self.reserves[outcome_index] = new_reserve;
 
-        // current supply
-        let s0_u64 = self.supplies[outcome_index];
-        let s0_dec = Decimal::from_plain(s0_u64)?;
+        // Calculate tokens to mint: supply × (amount_in / old_reserve)
+        let amount_out = if old_supply == 0 {
+            // If no supply yet, mint 1:1
+            amount_in
+        } else {
+            // Mint proportional to reserve increase
+            ((old_supply as u128)
+                .checked_mul(amount_in as u128)
+                .ok_or(error!(ErrorCode::MathOverflow))?
+                .checked_div(old_reserve as u128)
+                .ok_or(error!(ErrorCode::MathOverflow))?) as u64
+        };
 
-        // payment as Decimal D9 (since token amounts often D9) then convert to D18:
-        let a_d9 = Decimal::from_token_amount(amount_in)?;
-        // convert D9 -> D18 by multiplying by ONE_E9 (D9) producing D18 (D9 * D9 = D18)
-        // Decimal::ONE_E9 exists on your type
-        let a_d18 = a_d9.mul(&Decimal::ONE_E9)?; // now in D18
-
-        // s0^2 (keep at D18): (s0_dec * s0_dec) / ONE_E18  => result D18
-        let s0_sq = s0_dec.mul(&s0_dec)?.div(&Decimal::ONE_E18)?;
-
-        // compute 2 * A_in_D18 (D18 * D18 = D36 ; divide by ONE_E18 -> D18)
-        let two_d18 = Decimal::from_plain(2)?;
-        let two_a_d18 = a_d18.mul(&two_d18)?.div(&Decimal::ONE_E18)?;
-
-        // rhs = s0^2 + 2 * A
-        let rhs = s0_sq.add(&two_a_d18)?;
-
-        // s_new = sqrt(rhs)  (nth_root with n=2), returns D18
-        let s_new = rhs.nth_root(2)?;
-
-        // delta = s_new - s0_dec  (D18)
-        let delta = s_new.sub(&s0_dec)?;
-
-        // minted amount -> convert D18 -> token units (D9) using to_token_amount
-        let amount_out = delta.to_token_amount(Rounding::Floor)?.0;
-
-        // Update supply (checked)
+        // Update supply
         self.supplies[outcome_index] = self.supplies[outcome_index]
             .checked_add(amount_out)
             .ok_or(error!(ErrorCode::MathOverflow))?;
 
-        // Recompute invariant (efficient/incremental update could be used, but recompute for correctness)
+        // Recompute invariant (it increases as we add liquidity)
         self.recompute_invariant()?;
 
         Ok(amount_out)
@@ -222,43 +245,28 @@ impl Market {
         burn_amount: u64,
         vault_lamports: u64,
     ) -> Result<u64> {
+        let n = self.num_outcomes as usize;
+        check_condition!(outcome_index < n, InvalidOutcomeIndex);
+        check_condition!(burn_amount > 0, BurnIsZero);
+
         let supply_before = self.supplies[outcome_index];
+        let reserve_before = self.reserves[outcome_index];
+
         check_condition!(burn_amount <= supply_before, BurnIsMoreThanSupply);
+        check_condition!(supply_before > 0, SupplyIsZero);
 
-        // --- Compute refund using quadratic bonding curve C(s) = 1/2 * s^2 ---
+        // Geometric mean AMM sell formula (inverse of buy)
+        // When buying: tokens_minted = supply × (amount_in / reserve)
+        // When selling: refund = reserve × (burn_amount / supply)
         //
-        // Convert supplies to Decimal D18:
-        // s0 = Decimal::from_plain(supply_before)
-        // delta_s = Decimal::from_plain(burn_amount)
-        //
-        // C(s) = 0.5 * s^2  (we handle scaling with Decimal arithmetic)
-        //
-        // refund_dec = C(s0) - C(s0 - delta_s)  (both D18)
-        // refund_lamports = refund_dec.to_token_amount(Floor)  (u64 lamports)
-        //
+        // This maintains the reserve-to-supply ratio and ensures symmetry
 
-        // s0 (D18)
-        let s0_dec = Decimal::from_plain(supply_before)?;
-        // s1 = s0 - delta (D18)
-        let delta_dec = Decimal::from_plain(burn_amount)?;
-        // ensure s0 >= delta
-        let s1_dec = s0_dec.sub(&delta_dec)?;
-
-        // C(s0) : compute s0^2 -> (s0 * s0) / ONE_E18 = D18
-        let s0_sq = s0_dec.mul(&s0_dec)?.div(&Decimal::ONE_E18)?;
-        // multiply by 1/2: (s0_sq * 1) / 2
-        let half = Decimal::from_plain(1u64)?.div(&Decimal::from_plain(2u64)?)?; // equals 0.5 in D18
-        let c_s0 = s0_sq.mul(&half)?.div(&Decimal::ONE_E18)?; // s0_sq is D18; multiply by half (D18) => D36 then /D18 -> D18
-
-        // C(s1)
-        let s1_sq = s1_dec.mul(&s1_dec)?.div(&Decimal::ONE_E18)?;
-        let c_s1 = s1_sq.mul(&half)?.div(&Decimal::ONE_E18)?;
-
-        // refund in D18
-        let refund_dec = c_s0.sub(&c_s1)?;
-        // Convert D18 -> lamports (u64), floor rounding
-        let refund_tokens = refund_dec.to_token_amount(Rounding::Floor)?;
-        let refund_u64 = refund_tokens.0;
+        // Calculate refund: reserve × (burn_amount / supply)
+        let refund_u64 = ((reserve_before as u128)
+            .checked_mul(burn_amount as u128)
+            .ok_or(error!(ErrorCode::MathOverflow))?
+            .checked_div(supply_before as u128)
+            .ok_or(error!(ErrorCode::MathOverflow))?) as u64;
 
         // If nothing to refund (due to rounding), return early
         if refund_u64 == 0 {
@@ -353,39 +361,37 @@ impl Market {
         Ok(percentages)
     }
 
-    /// Compute the implied price for a given outcome.
-    /// The price represents the market's probability that this outcome will occur.
-    /// Returns a u64 scaled by 1e9 (i.e., price of 0.5 = 500_000_000).
+    /// Compute the marginal price for a given outcome.
+    /// This represents the cost per token based on the current reserve-to-supply ratio.
+    /// Returns a u64 scaled by 1e9 (i.e., price of 1.0 = 1_000_000_000).
     ///
-    /// Formula: price = reserve_i / sum(all reserves)
+    /// Formula: price = reserve_i / supply_i
+    ///
+    /// This gives each outcome an independent price that reflects its own liquidity,
+    /// minimizing cross-impact from other outcomes.
     ///
     /// For example:
-    /// - If outcome has 30% of total reserves, price = 300_000_000 (0.30 or 30%)
-    /// - If outcome has 50% of total reserves, price = 500_000_000 (0.50 or 50%)
+    /// - If reserve = 100M and supply = 100M tokens, price = 1.0 (1_000_000_000)
+    /// - If reserve = 200M and supply = 100M tokens, price = 2.0 (2_000_000_000)
     pub fn outcome_price(&self, outcome_index: usize) -> Result<u64> {
         let n = self.num_outcomes as usize;
         check_condition!(n <= MAX_OUTCOMES, InvalidOutcomeIndex);
         check_condition!(outcome_index < n, InvalidOutcomeIndex);
 
-        // Compute total reserves across all active outcomes
-        let mut total: u128 = 0;
-        for i in 0..n {
-            total = total
-                .checked_add(self.reserves[i] as u128)
-                .ok_or(error!(ErrorCode::MathOverflow))?;
-        }
+        let reserve = self.reserves[outcome_index] as u128;
+        let supply = self.supplies[outcome_index] as u128;
 
-        // Handle edge case: if total is zero, return 0
-        if total == 0 {
+        // Handle edge case: if supply is zero, return 0
+        if supply == 0 {
             return Ok(0);
         }
 
-        // Compute price: (reserve / total) * 1e9
-        let reserve = self.reserves[outcome_index] as u128;
+        // Compute price: (reserve / supply) * 1e9
+        // This gives the average cost per token in lamports, scaled by 1e9
         let price = reserve
             .checked_mul(D9_U128)
             .ok_or(error!(ErrorCode::MathOverflow))?
-            .checked_div(total)
+            .checked_div(supply)
             .ok_or(error!(ErrorCode::MathOverflow))?;
 
         // Clamp to u64::MAX if somehow exceeds (shouldn't happen in practice)

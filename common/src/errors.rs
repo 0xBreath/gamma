@@ -75,6 +75,12 @@ pub enum ErrorCode {
 
     #[msg("Market must last at least 1 second")]
     MarketTooQuick,
+
+    #[msg("Reserve is zero")]
+    ReserveIsZero,
+
+    #[msg("Supply is zero")]
+    SupplyIsZero,
 }
 
 /// Check a condition and return an error if it is not met.

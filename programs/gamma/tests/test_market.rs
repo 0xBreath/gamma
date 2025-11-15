@@ -1,3 +1,4 @@
+// LiteSVM docs: https://www.anchor-lang.com/docs/testing/litesvm
 // Example LiteSVM test: https://github.com/brimigs/anchor-escrow-with-litesvm/blob/main/tests/litesvm-tests.rs
 
 use anchor_lang::AccountDeserialize;
@@ -146,7 +147,12 @@ fn test_market() {
         );
         svm.send_transaction(tx).unwrap();
 
-        let user_outcome_a_tokens = svm.get_balance(&user_outcome_a_token_pda).unwrap();
+        let user_outcome_a_token_account = svm.get_account(&user_outcome_a_token_pda).unwrap();
+        let user_outcome_a_tokens = anchor_spl::token::TokenAccount::try_deserialize(
+            &mut user_outcome_a_token_account.data.as_ref(),
+        )
+        .unwrap()
+        .amount;
         assert!(user_outcome_a_tokens > 0);
         println!(
             "user_outcome_a_tokens after buying A: {}",
@@ -166,10 +172,12 @@ fn test_market() {
             "outcome_a_price after buying A: {}",
             outcome_a_price as f64 / D9_U128 as f64
         );
+        let outcome_b_price = market.outcome_price(1).unwrap();
+        assert_eq!(outcome_b_price, 0);
     }
 
     // buy outcome B
-    {
+    let outcome_b_price_after_buying_b = {
         let user_outcome_b_token_pda =
             get_associated_token_address(&user.pubkey(), &outcome_mint_b);
         let accounts_ctx = gamma::accounts::Buy {
@@ -207,7 +215,13 @@ fn test_market() {
         );
         svm.send_transaction(tx).unwrap();
 
-        let user_outcome_b_tokens = svm.get_balance(&user_outcome_b_token_pda).unwrap();
+        let user_outcome_b_token_account = svm.get_account(&user_outcome_b_token_pda).unwrap();
+        let user_outcome_b_tokens = anchor_spl::token::TokenAccount::try_deserialize(
+            &mut user_outcome_b_token_account.data.as_ref(),
+        )
+        .unwrap()
+        .amount;
+
         assert!(user_outcome_b_tokens > 0);
         println!(
             "user_outcome_b_tokens after buying B: {}",
@@ -216,9 +230,6 @@ fn test_market() {
 
         let user_lamports = svm.get_balance(&user.pubkey()).unwrap();
         assert!(user_lamports < airdrop_lamports_amount);
-        let spent_lamports = airdrop_lamports_amount - user_lamports;
-        println!("spent_lamports: {}", spent_lamports);
-        // assert_eq!(spent_lamports, deposit_amount + 2044280);
 
         let market_account = svm.get_account(&market).unwrap();
         let market =
@@ -232,6 +243,84 @@ fn test_market() {
         println!(
             "outcome_b_price after buying B: {}",
             outcome_b_price as f64 / D9_U128 as f64
+        );
+        outcome_b_price
+    };
+
+    // sell outcome A
+    {
+        let user_outcome_a_token_pda =
+            get_associated_token_address(&user.pubkey(), &outcome_mint_a);
+
+        // sell 100% of outcome A tokens
+        let user_outcome_token_account_raw = svm.get_account(&user_outcome_a_token_pda).unwrap();
+        let user_outcome_a_balance = anchor_spl::token::TokenAccount::try_deserialize(
+            &mut user_outcome_token_account_raw.data.as_ref(),
+        )
+        .unwrap()
+        .amount;
+
+        let accounts_ctx = gamma::accounts::Sell {
+            user: user.pubkey(),
+            market,
+            market_vault,
+            outcome_mint: outcome_mint_a,
+            user_outcome_token_account: user_outcome_a_token_pda,
+            token_program: anchor_spl::token::ID,
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None);
+        let sell_ix = Instruction::new_with_bytes(
+            program_id,
+            &gamma::instruction::Sell {
+                outcome_index: 0,
+                burn_amount: user_outcome_a_balance,
+            }
+            .data(),
+            accounts_ctx,
+        );
+
+        let user_lamports_before = svm.get_balance(&user.pubkey()).unwrap();
+        let market_vault_lamports_before = svm.get_balance(&market_vault).unwrap();
+
+        let tx = Transaction::new_signed_with_payer(
+            &[sell_ix],
+            Some(&user.pubkey()),
+            &[&user],
+            svm.latest_blockhash(),
+        );
+        svm.send_transaction(tx).unwrap();
+
+        let market_account = svm.get_account(&market).unwrap();
+        let market =
+            gamma::state::Market::try_deserialize(&mut market_account.data.as_ref()).unwrap();
+        let outcome_a_price = market.outcome_price(0).unwrap();
+        println!(
+            "outcome_a_price after selling A: {}",
+            outcome_a_price as f64 / D9_U128 as f64
+        );
+        // supply of outcome A is zero so price should be zero
+        assert_eq!(outcome_a_price, 0);
+        let outcome_b_price = market.outcome_price(1).unwrap();
+        // outcome B price should not have changed
+        assert_eq!(outcome_b_price_after_buying_b, outcome_b_price);
+
+        let user_outcome_token_account_raw = svm.get_account(&user_outcome_a_token_pda).unwrap();
+        let user_outcome_a_balance_after = anchor_spl::token::TokenAccount::try_deserialize(
+            &mut user_outcome_token_account_raw.data.as_ref(),
+        )
+        .unwrap()
+        .amount;
+        assert_eq!(user_outcome_a_balance_after, 0);
+
+        let user_lamports_after = svm.get_balance(&user.pubkey()).unwrap();
+        assert!(user_lamports_after > user_lamports_before);
+        let market_vault_lamports_after = svm.get_balance(&market_vault).unwrap();
+        assert!(market_vault_lamports_after < market_vault_lamports_before);
+        // user gains what market_vault lost minus 5000 lamports for tx fee
+        assert_eq!(
+            market_vault_lamports_before - market_vault_lamports_after - 5000,
+            user_lamports_after - user_lamports_before
         );
     }
 }

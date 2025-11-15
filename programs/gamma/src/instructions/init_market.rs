@@ -6,7 +6,6 @@ use spl_token::solana_program;
 
 use crate::state::Market;
 use crate::types::{FixedSizeString, MAX_PADDED_STRING_LENGTH};
-use anchor_lang::solana_program::rent::ACCOUNT_STORAGE_OVERHEAD;
 use anchor_lang::system_program;
 use common::constants::{
     MARKET_SEED, MAX_OUTCOMES, MIN_MARKET_DURATION, OUTCOME_MINT_DECIMALS, OUTCOME_MINT_SEED,
@@ -37,7 +36,7 @@ pub struct InitMarket<'info> {
     #[account(
         init,
         payer = admin,
-        space = ACCOUNT_STORAGE_OVERHEAD as usize,
+        space = 0,
         seeds = [VAULT_SEED, market.key().as_ref()],
         bump,
     )]
