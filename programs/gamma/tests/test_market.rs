@@ -323,4 +323,65 @@ fn test_market() {
             user_lamports_after - user_lamports_before
         );
     }
+
+    // sell outcome B
+    {
+        let user_outcome_b_token_pda =
+            get_associated_token_address(&user.pubkey(), &outcome_mint_b);
+
+        // sell 100% of outcome B tokens
+        let user_outcome_token_account_raw = svm.get_account(&user_outcome_b_token_pda).unwrap();
+        let user_outcome_b_balance = anchor_spl::token::TokenAccount::try_deserialize(
+            &mut user_outcome_token_account_raw.data.as_ref(),
+        )
+        .unwrap()
+        .amount;
+
+        let accounts_ctx = gamma::accounts::Sell {
+            user: user.pubkey(),
+            market,
+            market_vault,
+            outcome_mint: outcome_mint_b,
+            user_outcome_token_account: user_outcome_b_token_pda,
+            token_program: anchor_spl::token::ID,
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None);
+        let sell_ix = Instruction::new_with_bytes(
+            program_id,
+            &gamma::instruction::Sell {
+                outcome_index: 1,
+                burn_amount: user_outcome_b_balance,
+            }
+            .data(),
+            accounts_ctx,
+        );
+
+        let tx = Transaction::new_signed_with_payer(
+            &[sell_ix],
+            Some(&user.pubkey()),
+            &[&user],
+            svm.latest_blockhash(),
+        );
+        svm.send_transaction(tx).unwrap();
+
+        let market_account = svm.get_account(&market).unwrap();
+        let market =
+            gamma::state::Market::try_deserialize(&mut market_account.data.as_ref()).unwrap();
+        let outcome_b_price = market.outcome_price(1).unwrap();
+        println!(
+            "outcome_b_price after selling B: {}",
+            outcome_b_price as f64 / D9_U128 as f64
+        );
+        // supply of outcome B is zero so price should be zero
+        assert_eq!(outcome_b_price, 0);
+
+        let user_outcome_token_account_raw = svm.get_account(&user_outcome_b_token_pda).unwrap();
+        let user_outcome_b_balance_after = anchor_spl::token::TokenAccount::try_deserialize(
+            &mut user_outcome_token_account_raw.data.as_ref(),
+        )
+        .unwrap()
+        .amount;
+        assert_eq!(user_outcome_b_balance_after, 0);
+    }
 }
