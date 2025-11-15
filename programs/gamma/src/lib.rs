@@ -18,8 +18,8 @@ pub mod gamma {
     use super::*;
 
     /// Create a new market with N outcomes
-    pub fn init_market(
-        ctx: Context<InitMarket>,
+    pub fn init_market<'info>(
+        ctx: Context<'_, '_, 'info, 'info, InitMarket<'info>>,
         num_outcomes: u8,
         scale: u64,
         label: String,

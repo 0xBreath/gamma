@@ -34,5 +34,6 @@ spl-token-metadata-interface = { workspace = true }
 spl-type-length-value = { workspace = true }
 
 [dev-dependencies]
-mollusk-svm = { workspace = true }
-solana-program = { workspace = true }
+litesvm = { workspace = true }
+litesvm-token = { workspace = true }
+solana-sdk = { workspace = true }

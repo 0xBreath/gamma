@@ -76,4 +76,5 @@ build-local:
 	@anchor build
 
 test:
-    @anchor test
+    @anchor build
+    @cargo test

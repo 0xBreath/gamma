@@ -18,23 +18,26 @@ codegen-units = 1
 anchor-lang = { version = "=0.31.1", features = ["init-if-needed"] }
 anchor-spl = { version = "=0.31.1", features = ["metadata"] }
 anyhow = "^1.0.97"
-bytemuck = "=1.23.2"
-spl-token-metadata-interface = "0.7.0"
-spl-token = "7.0.0"
-spl-type-length-value = "0.8.0"
-spl-math =  { version = "0.3.0", features = ["no-entrypoint"] }
-dotenv = "0.15.0"
-log = "^0.4.26"
-lazy_static = "1.4.0"
-simplelog = "^0.12.2"
-time = "0.3.37"
-solana-program = "2"
-solana-instruction = "2"
-solana-zk-sdk = "2"
 borsh = "1.5.7"
-spl-token-2022 = { version = "9.0.0", features = ["no-entrypoint"] }
-solana-system-interface = { version = "1.0.0", features = ["bincode"] }
-spl-pod = "0.5.1"
-gamma = { path = "programs/gamma", features = ["no-entrypoint"] }
-mollusk-svm = "0.7.1"
+bytemuck = "=1.23.2"
 common = { path = "common" }
+dotenv = "0.15.0"
+gamma = { path = "programs/gamma", features = ["no-entrypoint"] }
+lazy_static = "1.4.0"
+litesvm = "0.6.1"
+litesvm-token = "0.6.1"
+log = "^0.4.26"
+mollusk-svm = "0.7.1"
+simplelog = "^0.12.2"
+solana-instruction = "~2.1"
+solana-program = "~2.1"
+solana-sdk = "2.2"
+solana-system-interface = { version = "1.0.0", features = ["bincode"] }
+solana-zk-sdk = "~2.1"
+spl-math =  { version = "0.3.0", features = ["no-entrypoint"] }
+spl-pod = "0.5.1"
+spl-token = "7.0.0"
+spl-token-2022 = { version = "9.0.0", features = ["no-entrypoint"] }
+spl-token-metadata-interface = "0.7.0"
+spl-type-length-value = "0.8.0"
+time = "0.3.37"

@@ -109,7 +109,7 @@ impl Market {
 
     /// Compute required reserve (U256) for outcome idx to satisfy the invariant:
     ///
-    ///     required_r_i = invariant / ∏_{j != i} r_j
+    /// required_r_i = invariant / ∏_{j != i} r_j
     ///
     /// If product_except == 0, this returns 0 (degenerate case).
     pub fn required_reserve_for(&self, idx: usize) -> Result<U256> {
