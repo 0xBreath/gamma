@@ -69,6 +69,12 @@ pub enum ErrorCode {
 
     #[msg("Vault transfer failed")]
     VaultTransferFailed,
+
+    #[msg("Market expired")]
+    MarketExpired,
+
+    #[msg("Market must last at least 1 second")]
+    MarketTooQuick,
 }
 
 /// Check a condition and return an error if it is not met.

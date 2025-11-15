@@ -21,6 +21,9 @@ pub struct Market {
     /// All values stored as u64 but promoted to u128 for math.
     pub reserves: [u64; MAX_OUTCOMES],
 
+    /// Outcome mint token supplies for each outcome, fixed-point scaled.
+    /// All values stored as u64 but promoted to u128 for math.
+    /// Each outcome has a unique mint but all have the same decimals, so this is safe to apply generic math to.
     pub supplies: [u64; MAX_OUTCOMES],
 
     /// Precision scalar (e.g., 1e6 or 1e12)
@@ -29,21 +32,24 @@ pub struct Market {
 
     pub initialized_at: u64,
 
+    /// When the market will resolve and halt trading
+    pub resolve_at: i64,
+
+    /// Lamports held in the market_vault not yet claimed by the fee recipient
     pub undistributed_fees: u64,
 
     /// The admin of the market who can mutate it
     pub admin: Pubkey,
-
-    /// Token users will deposit and withdraw from the market in exchange for shares (i.e. USDC)
-    pub deposit_mint: Pubkey,
 
     pub label: FixedSizeString,
 
     /// Number of outcomes (N)
     pub num_outcomes: u8,
 
+    /// Bump for this [`Market`]
     pub bump: u8,
 
+    /// Bump for market_vault which contains SOL reserves on behalf of the [`Market`]
     pub vault_bump: u8,
 
     /// Padding for zero copy alignment
@@ -296,5 +302,97 @@ impl Market {
         self.recompute_invariant()?;
 
         Ok(net_payout_u64)
+    }
+
+    /// Compute normalized percentage of total liquidity for each outcome.
+    /// Returns [u64; MAX_OUTCOMES] where each value represents the percentage
+    /// of total reserves that outcome holds, scaled by 1e9 (i.e., 100% = 1_000_000_000).
+    ///
+    /// For example, if outcome 0 has 30% of total liquidity, the returned value
+    /// at index 0 would be 300_000_000.
+    pub fn liquidity_percentages(&self) -> Result<[u64; MAX_OUTCOMES]> {
+        let n = self.num_outcomes as usize;
+        check_condition!(n <= MAX_OUTCOMES, InvalidOutcomeIndex);
+
+        // Compute total reserves across all active outcomes
+        let mut total: u128 = 0;
+        for i in 0..n {
+            total = total
+                .checked_add(self.reserves[i] as u128)
+                .ok_or(error!(ErrorCode::MathOverflow))?;
+        }
+
+        // Initialize result array with zeros
+        let mut percentages = [0u64; MAX_OUTCOMES];
+
+        // Handle edge case: if total is zero, all percentages are zero
+        if total == 0 {
+            return Ok(percentages);
+        }
+
+        // Compute percentage for each active outcome
+        // percentage = (reserve / total) * 1e9
+        // We use 1e9 scaling to maintain precision (100% = 1_000_000_000)
+
+        for i in 0..n {
+            let reserve = self.reserves[i] as u128;
+            let percentage = reserve
+                .checked_mul(D9_U128)
+                .ok_or(error!(ErrorCode::MathOverflow))?
+                .checked_div(total)
+                .ok_or(error!(ErrorCode::MathOverflow))?;
+
+            // Clamp to u64::MAX if somehow exceeds (shouldn't happen in practice)
+            percentages[i] = if percentage > u64::MAX as u128 {
+                u64::MAX
+            } else {
+                percentage as u64
+            };
+        }
+
+        Ok(percentages)
+    }
+
+    /// Compute the implied price for a given outcome.
+    /// The price represents the market's probability that this outcome will occur.
+    /// Returns a u64 scaled by 1e9 (i.e., price of 0.5 = 500_000_000).
+    ///
+    /// Formula: price = reserve_i / sum(all reserves)
+    ///
+    /// For example:
+    /// - If outcome has 30% of total reserves, price = 300_000_000 (0.30 or 30%)
+    /// - If outcome has 50% of total reserves, price = 500_000_000 (0.50 or 50%)
+    pub fn outcome_price(&self, outcome_index: usize) -> Result<u64> {
+        let n = self.num_outcomes as usize;
+        check_condition!(n <= MAX_OUTCOMES, InvalidOutcomeIndex);
+        check_condition!(outcome_index < n, InvalidOutcomeIndex);
+
+        // Compute total reserves across all active outcomes
+        let mut total: u128 = 0;
+        for i in 0..n {
+            total = total
+                .checked_add(self.reserves[i] as u128)
+                .ok_or(error!(ErrorCode::MathOverflow))?;
+        }
+
+        // Handle edge case: if total is zero, return 0
+        if total == 0 {
+            return Ok(0);
+        }
+
+        // Compute price: (reserve / total) * 1e9
+        let reserve = self.reserves[outcome_index] as u128;
+        let price = reserve
+            .checked_mul(D9_U128)
+            .ok_or(error!(ErrorCode::MathOverflow))?
+            .checked_div(total)
+            .ok_or(error!(ErrorCode::MathOverflow))?;
+
+        // Clamp to u64::MAX if somehow exceeds (shouldn't happen in practice)
+        if price > u64::MAX as u128 {
+            Ok(u64::MAX)
+        } else {
+            Ok(price as u64)
+        }
     }
 }

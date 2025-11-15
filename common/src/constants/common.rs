@@ -25,3 +25,5 @@ pub const LN_2: u128 = 693_147_180_559_945_309;
 // Tunables (adjust or move to Market)
 pub const FEE_BPS: u64 = 10; // 0.1%
 pub const MAX_WITHDRAW_BPS: u64 = 50_00; // 50% of outcome reserve allowed per tx (in basis points; 10000 = 100%)
+
+pub const MIN_MARKET_DURATION: i64 = 1;

@@ -15,7 +15,7 @@ pub struct Buy<'info> {
     #[account(mut)]
     pub market: AccountLoader<'info, Market>,
 
-    /// CHECK: PDA check
+    /// CHECK: PDA check and mint account check within token program CPI
     #[account(
         mut,
         seeds = [VAULT_SEED, market.key().as_ref()],
@@ -51,6 +51,9 @@ pub fn buy(ctx: Context<Buy>, outcome_index: u8, amount_in: u64) -> Result<()> {
     let mut market = ctx.accounts.market.load_mut()?;
     let idx = outcome_index as usize;
     let num_outcomes = market.num_outcomes as usize;
+
+    let now = Clock::get()?.unix_timestamp;
+    check_condition!(now < market.resolve_at, MarketExpired);
 
     check_condition!(amount_in > 0, DepositIsZero);
     check_condition!(num_outcomes > 0, OutcomeBelowZero);

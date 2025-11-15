@@ -58,6 +58,9 @@ pub fn sell(ctx: Context<Sell>, outcome_index: u8, burn_amount: u64) -> Result<(
     let idx = outcome_index as usize;
     let n = market.num_outcomes as usize;
 
+    let now = Clock::get()?.unix_timestamp;
+    check_condition!(now < market.resolve_at, MarketExpired);
+
     check_condition!(burn_amount > 0, BurnIsZero);
     check_condition!(n > 0, OutcomeBelowZero);
     check_condition!(idx < n, InvalidOutcomeIndex);

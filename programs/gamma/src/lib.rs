@@ -23,9 +23,10 @@ pub mod gamma {
         ctx: Context<'_, '_, 'info, 'info, InitMarket<'info>>,
         num_outcomes: u8,
         scale: u64,
+        resolve_at: i64,
         label: FixedSizeString,
     ) -> Result<()> {
-        instructions::init_market(ctx, num_outcomes, scale, label)
+        instructions::init_market(ctx, num_outcomes, scale, resolve_at, label)
     }
 
     /// Buy into a single outcome with SOL and receive liquid-stake tokens for that position

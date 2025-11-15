@@ -9,12 +9,13 @@ use crate::types::{FixedSizeString, MAX_PADDED_STRING_LENGTH};
 use anchor_lang::solana_program::rent::ACCOUNT_STORAGE_OVERHEAD;
 use anchor_lang::system_program;
 use common::constants::{
-    MARKET_SEED, MAX_OUTCOMES, OUTCOME_MINT_DECIMALS, OUTCOME_MINT_SEED, VAULT_SEED,
+    MARKET_SEED, MAX_OUTCOMES, MIN_MARKET_DURATION, OUTCOME_MINT_DECIMALS, OUTCOME_MINT_SEED,
+    VAULT_SEED,
 };
 use common::{check_condition, errors::ErrorCode};
 
 #[derive(Accounts)]
-#[instruction(num_outcomes: u8, scale: u64, label: FixedSizeString)]
+#[instruction(num_outcomes: u8, scale: u64, resolve_at: i64, label: FixedSizeString)]
 pub struct InitMarket<'info> {
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
@@ -32,7 +33,7 @@ pub struct InitMarket<'info> {
     )]
     pub market: AccountLoader<'info, Market>,
 
-    /// CHECK: Default account with no data that stores lamports for the [`Market`]
+    /// CHECK: Check PDA. Account with no data that stores lamports for the [`Market`] as its `reserves`
     #[account(
         init,
         payer = admin,
@@ -44,16 +45,17 @@ pub struct InitMarket<'info> {
 }
 
 pub fn init_market<'info>(
-    // ctx: Context<InitMarket>,
     ctx: Context<'_, '_, 'info, 'info, InitMarket<'info>>,
     num_outcomes: u8,
     scale: u64,
+    resolve_at: i64,
     label: FixedSizeString,
 ) -> Result<()> {
     let mut market = ctx.accounts.market.load_init()?;
 
+    let now = Clock::get()?.unix_timestamp;
+    check_condition!(now + MIN_MARKET_DURATION < resolve_at, MarketTooQuick);
     check_condition!(num_outcomes as usize <= MAX_OUTCOMES, TooManyOutcomes);
-
     check_condition!(
         label.value.len() <= MAX_PADDED_STRING_LENGTH,
         InvalidLabelLength
@@ -67,6 +69,7 @@ pub fn init_market<'info>(
 
     market.admin = *ctx.accounts.admin.key;
     market.num_outcomes = num_outcomes;
+    market.resolve_at = resolve_at;
     market.scale = scale;
     market.bump = ctx.bumps.market;
     market.vault_bump = ctx.bumps.market_vault;
